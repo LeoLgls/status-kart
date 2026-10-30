@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "hub": "prism mock ../contracts/integration-v1.yaml -p 4010",
+    "hub": "prism mock ../../contracts/integration-v1.yaml -p 4010",
     "dev": "node --env-file-if-exists=.env --watch src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
     "check:manifest": "node src/check-manifest.js",

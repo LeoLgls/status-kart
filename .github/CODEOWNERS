@@ -1,0 +1,10 @@
+# Le contrat appartient aux deux sous-groupes : une PR qui le touche est relue par le front ET le back.
+/contracts/      @lorisnve @LeoLgls @yduclospro-dev @Mieru-yo
+/.spectral.yaml  @lorisnve @LeoLgls @yduclospro-dev @Mieru-yo
+
+# Chaque application appartient à son sous-groupe
+/apps/web/       @lorisnve @LeoLgls
+/apps/api/       @yduclospro-dev @Mieru-yo
+
+# CI et règles du dépôt : tout le monde
+/.github/        @lorisnve @LeoLgls @yduclospro-dev @Mieru-yo
