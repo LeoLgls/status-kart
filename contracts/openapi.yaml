@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  title: Status Kart — contrat front / back
+  version: 0.1.0
+  summary: Ce que le front de Status Kart demande à son back pour jouer un niveau.
+  description: |
+    Contrat entre le front et le back du jeu. Le hub n'y apparaît pas : seul le back lui parle
+    (voir `integration-v1.yaml`).
+
+    ## Parcours d'un niveau
+    1. Le front lit `fsq_token` dans l'URL, le retire de l'URL, puis l'envoie à chaque appel dans
+       `Authorization: Bearer`.
+    2. `GET /api/session` : le back vérifie le jeton auprès du hub et renvoie le joueur.
+    3. `POST /api/runs` : le back tire les six questions du niveau, **sans les réponses**.
+    4. `POST /api/runs/{runId}/answers` à chaque barrière : le back corrige le couloir choisi.
+    5. `POST /api/runs/{runId}/finish` à l'arrivée : le back calcule le score (0 à 10 000) à partir
+       de ses propres corrections et du temps qu'il a mesuré, puis l'envoie au hub.
+
+    ## Règles
+    - Le front ne connaît jamais la bonne réponse avant d'avoir répondu : il ne peut pas tricher.
+    - Le score n'est jamais envoyé par le front.
+    - Toutes les erreurs ont le format du hub : `{ "error": { "code": "...", "message": "..." } }`.
+  contact:
+    name: Équipe Status Kart
+servers:
+  - url: http://localhost:4000
+    description: Back du jeu en local
+tags:
+  - name: Session
+    description: Qui joue
+  - name: Course
+    description: Jouer un niveau
+paths:
+  /api/session:
+    get:
+      tags: [Session]
+      operationId: getSession
+      summary: Identifier le joueur
+      description: |
+        Le back appelle `GET /api/v1/me` sur le hub avec le jeton reçu et renvoie le joueur.
+        Écran titre : affiche le pseudo, ou le message « relance le jeu depuis le hub » en cas de 401.
+      security:
+        - fsqToken: []
+      responses:
+        "200":
+          description: Le joueur qui a lancé le jeu
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Player" }
+              example: { playerId: "p_42", pseudo: "Neo", level: 7 }
+        "401": { $ref: "#/components/responses/InvalidToken" }
+        "502": { $ref: "#/components/responses/HubUnavailable" }
+  /api/runs:
+    post:
+      tags: [Course]
+      operationId: startRun
+      summary: Démarrer un niveau
+      description: |
+        Le back tire six questions du niveau et mélange les trois codes de chaque question.
+        Il note l'heure de départ : c'est lui qui mesure le temps du niveau.
+        Écran de course : la situation et les trois couloirs de chaque barrière.
+      security:
+        - fsqToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StartRunRequest" }
+            example: { level: 1 }
+      responses:
+        "201":
+          description: Niveau démarré
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+              example:
+                runId: "r_7f3a9c"
+                level: 1
+                circuit: "PRAIRIE"
+                questions:
+                  - { id: "q_1", situation: "GET /joueurs/42 : le joueur existe, on renvoie sa fiche.", lanes: ["404", "200", "500"] }
+                  - { id: "q_2", situation: "GET /joueurs/999 : aucun joueur avec cet identifiant.", lanes: ["200", "500", "404"] }
+                  - { id: "q_3", situation: "Le serveur lève une exception que personne n'a gérée.", lanes: ["500", "404", "400"] }
+                  - { id: "q_4", situation: "GET /classement sans aucun jeton de connexion.", lanes: ["200", "401", "500"] }
+                  - { id: "q_5", situation: "La page /regles a déménagé pour de bon vers /aide.", lanes: ["301", "404", "200"] }
+                  - { id: "q_6", situation: "La base de données est en maintenance, reviens plus tard.", lanes: ["400", "404", "503"] }
+        "401": { $ref: "#/components/responses/InvalidToken" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /api/runs/{runId}/answers:
+    post:
+      tags: [Course]
+      operationId: answerQuestion
+      summary: Corriger un couloir
+      description: |
+        Envoyé quand le couloir se verrouille, juste avant la barrière. Une seule réponse par question.
+        Écran de course : boost ou carapace, puis le verdict et son explication pendant 2,5 s.
+      security:
+        - fsqToken: []
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnswerRequest" }
+            example: { questionId: "q_4", lane: 1 }
+      responses:
+        "200":
+          description: Le verdict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Verdict" }
+              examples:
+                bonCouloir:
+                  summary: Bon couloir (boost)
+                  value: { correct: true, correctLane: 1, code: "401", name: "Unauthorized", explanation: "il faut s'authentifier d'abord." }
+                mauvaisCouloir:
+                  summary: Mauvais couloir (carapace)
+                  value: { correct: false, correctLane: 1, code: "401", name: "Unauthorized", explanation: "il faut s'authentifier d'abord." }
+        "401": { $ref: "#/components/responses/InvalidToken" }
+        "404": { $ref: "#/components/responses/RunNotFound" }
+        "409": { $ref: "#/components/responses/AlreadyAnswered" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /api/runs/{runId}/finish:
+    post:
+      tags: [Course]
+      operationId: finishRun
+      summary: Terminer le niveau
+      description: |
+        Le back calcule le score avec ses propres corrections et le temps qu'il a mesuré :
+        `score = 10 000 × (temps tout faux − temps du joueur) / (temps tout faux − temps parfait)`,
+        borné entre 0 et 10 000. Il l'envoie ensuite au hub (`POST /api/v1/scores`).
+        Écran de résultats : temps, bons couloirs, score, XP gagnée.
+      security:
+        - fsqToken: []
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Résultat du niveau
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunResult" }
+              examples:
+                sansFaute:
+                  summary: Six bons couloirs
+                  value: { level: 1, correctCount: 6, total: 6, timeMs: 58200, score: 10000, xpGained: 120, sentToHub: true }
+                avecErreurs:
+                  summary: Deux carapaces
+                  value: { level: 1, correctCount: 4, total: 6, timeMs: 66100, score: 5562, xpGained: 67, sentToHub: true }
+                bacASable:
+                  summary: Jeton de bac à sable (score enregistré, pas d'XP)
+                  value: { level: 1, correctCount: 5, total: 6, timeMs: 61800, score: 7978, xpGained: 0, sentToHub: true }
+        "401": { $ref: "#/components/responses/InvalidToken" }
+        "404": { $ref: "#/components/responses/RunNotFound" }
+        "409": { $ref: "#/components/responses/RunNotFinishable" }
+        "502": { $ref: "#/components/responses/HubUnavailable" }
+components:
+  securitySchemes:
+    fsqToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Le `fsq_token` reçu du hub dans l'URL de lancement, renvoyé tel quel au back.
+  parameters:
+    RunId:
+      name: runId
+      in: path
+      required: true
+      description: Identifiant du niveau en cours, renvoyé par `startRun`.
+      schema: { type: string, pattern: "^r_[0-9a-f]{6}$" }
+  schemas:
+    Player:
+      type: object
+      required: [playerId, pseudo, level]
+      properties:
+        playerId: { type: string, pattern: "^p_[0-9]+$" }
+        pseudo: { type: string }
+        level: { type: integer, minimum: 1, description: Niveau du joueur sur la plateforme }
+    StartRunRequest:
+      type: object
+      required: [level]
+      additionalProperties: false
+      properties:
+        level: { type: integer, minimum: 1, maximum: 4, description: Numéro du niveau à jouer }
+    Question:
+      type: object
+      required: [id, situation, lanes]
+      properties:
+        id: { type: string }
+        situation: { type: string, description: La situation HTTP affichée au joueur }
+        lanes:
+          type: array
+          description: Les codes des couloirs gauche, centre et droite (un seul est juste)
+          minItems: 3
+          maxItems: 3
+          items: { type: string, pattern: "^[1-5][0-9]{2}$" }
+    Run:
+      type: object
+      required: [runId, level, circuit, questions]
+      properties:
+        runId: { type: string, pattern: "^r_[0-9a-f]{6}$" }
+        level: { type: integer, minimum: 1, maximum: 4 }
+        circuit: { type: string }
+        questions:
+          type: array
+          minItems: 6
+          maxItems: 6
+          items: { $ref: "#/components/schemas/Question" }
+    AnswerRequest:
+      type: object
+      required: [questionId, lane]
+      additionalProperties: false
+      properties:
+        questionId: { type: string }
+        lane: { type: integer, minimum: 0, maximum: 2, description: "0 = gauche, 1 = centre, 2 = droite" }
+    Verdict:
+      type: object
+      required: [correct, correctLane, code, name, explanation]
+      properties:
+        correct: { type: boolean }
+        correctLane: { type: integer, minimum: 0, maximum: 2 }
+        code: { type: string, pattern: "^[1-5][0-9]{2}$", description: Le bon code }
+        name: { type: string, description: "Nom officiel du code (ex. Unauthorized)" }
+        explanation: { type: string }
+    RunResult:
+      type: object
+      required: [level, correctCount, total, timeMs, score, xpGained, sentToHub]
+      properties:
+        level: { type: integer, minimum: 1, maximum: 4 }
+        correctCount: { type: integer, minimum: 0, maximum: 6 }
+        total: { type: integer, minimum: 6, maximum: 6 }
+        timeMs: { type: integer, minimum: 0, description: Temps mesuré par le back }
+        score: { type: integer, minimum: 0, maximum: 10000 }
+        xpGained: { type: integer, minimum: 0, description: XP renvoyée par le hub }
+        sentToHub: { type: boolean, description: Le hub a bien accepté le score }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [INVALID_TOKEN, VALIDATION_ERROR, RUN_NOT_FOUND, ALREADY_ANSWERED, RUN_NOT_FINISHABLE, HUB_UNAVAILABLE]
+            message: { type: string }
+  responses:
+    InvalidToken:
+      description: Jeton absent, invalide ou expiré (2 h) ; le joueur doit relancer le jeu depuis le hub
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: INVALID_TOKEN, message: "Le jeton a expiré : relance le jeu depuis le hub" } }
+    ValidationError:
+      description: Corps de requête invalide
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: VALIDATION_ERROR, message: "lane : entier entre 0 et 2 attendu" } }
+    RunNotFound:
+      description: Ce niveau en cours n'existe pas ou n'appartient pas à ce joueur
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: RUN_NOT_FOUND, message: "Aucun niveau en cours avec cet identifiant" } }
+    AlreadyAnswered:
+      description: Cette question a déjà reçu une réponse
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: ALREADY_ANSWERED, message: "La question q_4 a déjà été corrigée" } }
+    RunNotFinishable:
+      description: Toutes les questions n'ont pas reçu de réponse, ou le niveau est déjà terminé
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: RUN_NOT_FINISHABLE, message: "Il reste 2 questions sans réponse" } }
+    HubUnavailable:
+      description: Le hub n'a pas répondu ou a répondu une erreur inattendue
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: HUB_UNAVAILABLE, message: "Le hub ne répond pas, réessaie dans un instant" } }
