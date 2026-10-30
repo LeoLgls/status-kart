@@ -15,7 +15,7 @@ export const manifest = {
 };
 
 export function validateManifest(value = manifest) {
-  const contract = parse(readFileSync(new URL('../../contracts/integration-v1.yaml', import.meta.url), 'utf8'));
+  const contract = parse(readFileSync(new URL('../../../contracts/integration-v1.yaml', import.meta.url), 'utf8'));
   const { example, ...schema } = contract.components.schemas.Manifest;
   const ajv = new Ajv({ allErrors: true, strict: false });
   addFormats(ajv);
