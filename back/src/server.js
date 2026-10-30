@@ -3,11 +3,17 @@ import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { getMe, postScore, HubError } from './hub.js';
 import { LEVELS, NAMES, shuffle } from './questions.js';
+import { manifest, validateManifest } from './manifest.js';
 
 const app = express();
 app.use(express.json());
 
 const fail = (res, status, code, message) => res.status(status).json({ error: { code, message } });
+
+// Le manifeste doit respecter le schéma du hub : on refuse de démarrer sinon.
+const manifestErrors = validateManifest();
+if (manifestErrors.length) throw new Error(`Manifeste invalide : ${manifestErrors.join(', ')}`);
+app.get('/fsq-manifest.json', (req, res) => res.json(manifest));
 
 // Le fsq_token arrive dans Authorization: Bearer et n'est renvoyé qu'au hub.
 const tokenOf = (req) => (req.get('Authorization') ?? '').replace(/^Bearer\s+/i, '') || null;

@@ -7,6 +7,7 @@ const api = async (method, path, body) => {
   return [res.status, await res.json()];
 };
 
+show('GET /fsq-manifest.json', ...(await api('GET', '/fsq-manifest.json')));
 show('GET /api/session (le back appelle /api/v1/me)', ...(await api('GET', '/api/session')));
 const [status, run] = await api('POST', '/api/runs', { level: 1 });
 show('POST /api/runs', status, { runId: run.runId, circuit: run.circuit, premiereQuestion: run.questions[0] });
