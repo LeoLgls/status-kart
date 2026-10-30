@@ -1,0 +1,20 @@
+{
+  "name": "status-kart-back",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hub": "prism mock ../contracts/integration-v1.yaml -p 4010",
+    "dev": "node --env-file-if-exists=.env --watch src/server.js",
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "demo": "node src/demo.js"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "express": "^4.21.2",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@stoplight/prism-cli": "^5.12.0"
+  }
+}
