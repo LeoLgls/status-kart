@@ -7,8 +7,8 @@ export const NAMES = {
 export const LEVELS = {
   1: {
     circuit: 'PRAIRIE',
-    perfectMs: 58200,     // temps d'un sans-faute
-    allWrongMs: 76000,    // temps d'un parcours tout faux
+    perfectMs: 58200,     // course d'un sans-faute, simulée avec la physique du prototype
+    allWrongMs: 76000,    // course d'un parcours tout faux
     bank: [
       { s: 'GET /joueurs/42 : le joueur existe, on renvoie sa fiche.', a: '200', o: ['404', '500'], e: 'tout s’est bien passé, la ressource est renvoyée.' },
       { s: 'GET /joueurs/999 : aucun joueur avec cet identifiant.', a: '404', o: ['200', '500'], e: 'la ressource demandée n’existe pas.' },
@@ -20,6 +20,16 @@ export const LEVELS = {
       { s: 'GET /quetes/xyz : rien n’existe à cette adresse.', a: '404', o: ['500', '301'], e: 'aucune ressource à cette adresse.' },
     ],
   },
+};
+
+// Le chrono du back part à startRun, donc avant le compte à rebours du front (3, 2, 1, GO : 3,5 s).
+export const COUNTDOWN_MS = 3500;
+
+// Score de 0 à 10 000 selon le temps mesuré par le back, compte à rebours retiré.
+export const scoreFor = (level, timeMs) => {
+  const { perfectMs, allWrongMs } = LEVELS[level];
+  const ratio = (allWrongMs - (timeMs - COUNTDOWN_MS)) / (allWrongMs - perfectMs);
+  return Math.round(10000 * Math.max(0, Math.min(1, ratio)));
 };
 
 export const shuffle = (arr) => {
