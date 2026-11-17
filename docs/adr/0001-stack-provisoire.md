@@ -1,6 +1,6 @@
 # ADR 0001 : choix de la stack
 
-Statut : provisoire
+Statut : remplacée par l'ADR 0002 (stack retenue)
 
 ## Contexte
 
