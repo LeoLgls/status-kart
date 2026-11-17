@@ -17,13 +17,16 @@ Chaque niveau rapporte de 0 à 10 000 selon le temps :
 score = 10 000 × (temps tout faux − temps du joueur) / (temps tout faux − temps parfait)
 ```
 
-Le jeu simule les deux temps de référence au début du niveau :
+Le jeu simule les deux temps de référence au début du niveau, avec la physique de la course :
 
 | Niveau | Temps parfait | Temps tout faux |
 |---|---|---|
 | 1 | 58,2 s | 76,0 s |
 | 2 | 54,6 s | 71,9 s |
 | 3 | 48,3 s | 64,6 s |
+
+Le back chronomètre de `startRun` à `finishRun` : il retire les 3,5 s du compte à rebours avant de
+calculer le score. Le front appelle `finishRun` dès que le kart passe la ligne.
 
 Dans un niveau, les questions sont toutes à la même distance. Une erreur en début de niveau coûte
 plus cher qu'à la fin, car le turbo est perdu plus tôt.

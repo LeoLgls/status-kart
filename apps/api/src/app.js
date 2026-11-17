@@ -3,7 +3,7 @@
 import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { getMe, postScore, HubError } from './hub.js';
-import { LEVELS, NAMES, shuffle } from './questions.js';
+import { LEVELS, NAMES, scoreFor, shuffle } from './questions.js';
 import { manifest, validateManifest } from './manifest.js';
 
 const app = express();
@@ -89,11 +89,9 @@ app.post('/api/runs/:runId/finish', requireToken, async (req, res) => {
   if (run.finished || missing > 0) {
     return fail(res, 409, 'RUN_NOT_FINISHABLE', run.finished ? 'Ce niveau est déjà terminé' : `Il reste ${missing} questions sans réponse`);
   }
-  const cfg = LEVELS[run.level];
   const timeMs = Date.now() - run.startedAt;
   const correctCount = run.questions.filter((q) => run.answers.get(q.id) === q.answer).length;
-  const ratio = (cfg.allWrongMs - timeMs) / (cfg.allWrongMs - cfg.perfectMs);
-  const score = Math.round(10000 * Math.max(0, Math.min(1, ratio)));
+  const score = scoreFor(run.level, timeMs);
   try {
     const hub = await postScore(run.token, { level: run.level, score, durationMs: timeMs });
     run.finished = true;
