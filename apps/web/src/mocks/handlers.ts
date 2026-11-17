@@ -23,14 +23,15 @@ const QUESTIONS = [
 ];
 const answered = new Map<string, number>();
 
-export const handlers = [
-  http.get<PathParams, DefaultBodyType, Body<S['Player']>>('/api/session', async () => {
+// Un handler par opération du contrat (operationId) : on peut couper les mocks un par un.
+export const handlersByOperation = {
+  getSession: http.get<PathParams, DefaultBodyType, Body<S['Player']>>('/api/session', async () => {
     await delay(300);
     if (scenario === 'jeton-expire') return error(401, 'INVALID_TOKEN', 'Le jeton a expiré : relance le jeu depuis le hub');
     return HttpResponse.json<S['Player']>({ playerId: 'p_42', pseudo: 'Neo', level: 7 });
   }),
 
-  http.post<PathParams, DefaultBodyType, Body<S['Run']>>('/api/runs', async ({ request }) => {
+  startRun: http.post<PathParams, DefaultBodyType, Body<S['Run']>>('/api/runs', async ({ request }) => {
     const body = (await request.json()) as Partial<S['StartRunRequest']>;
     if (!Number.isInteger(body.level)) return error(422, 'VALIDATION_ERROR', 'level : entier entre 1 et 4 attendu');
     answered.clear();
@@ -40,7 +41,7 @@ export const handlers = [
     }, { status: 201 });
   }),
 
-  http.post<PathParams, DefaultBodyType, Body<S['Verdict']>>('/api/runs/:runId/answers', async ({ request }) => {
+  answerQuestion: http.post<PathParams, DefaultBodyType, Body<S['Verdict']>>('/api/runs/:runId/answers', async ({ request }) => {
     const { questionId, lane } = (await request.json()) as S['AnswerRequest'];
     const q = QUESTIONS.find((x) => x.id === questionId);
     if (!q) return error(422, 'VALIDATION_ERROR', 'questionId inconnu');
@@ -52,7 +53,7 @@ export const handlers = [
     return HttpResponse.json<S['Verdict']>({ correct: lane === q.answer, correctLane: q.answer, code: q.code, name: q.name, explanation: q.explanation });
   }),
 
-  http.post<PathParams, DefaultBodyType, Body<S['RunResult']>>('/api/runs/:runId/finish', async () => {
+  finishRun: http.post<PathParams, DefaultBodyType, Body<S['RunResult']>>('/api/runs/:runId/finish', async () => {
     await delay(500);
     if (scenario === 'hub-indisponible') return error(502, 'HUB_UNAVAILABLE', 'Le hub ne répond pas, réessaie dans un instant');
     const correctCount = QUESTIONS.filter((q) => answered.get(q.id) === q.answer).length;
@@ -60,4 +61,7 @@ export const handlers = [
     const score = Math.round(10000 * (76000 - timeMs) / (76000 - 58200));
     return HttpResponse.json<S['RunResult']>({ level: 1, correctCount, total: 6, timeMs, score, xpGained: Math.round(score * 0.012), sentToHub: true });
   }),
-];
+};
+
+export type Operation = keyof typeof handlersByOperation;
+export const handlers = Object.values(handlersByOperation);
