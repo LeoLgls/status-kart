@@ -2,6 +2,8 @@
 // Exportée sans écouter de port, pour que les tests la démarrent eux-mêmes.
 import express from 'express';
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { getMe, postScore, HubError } from './hub.js';
 import { LEVELS, NAMES, shuffle } from './questions.js';
 import { manifest, validateManifest } from './manifest.js';
@@ -102,5 +104,13 @@ app.post('/api/runs/:runId/finish', requireToken, async (req, res) => {
     hubFailure(res, err);
   }
 });
+
+// Le build du front (apps/web/dist) est servi sur la même origine que /api : un seul service.
+// Toute autre URL en GET renvoie index.html, pour que le front gère ses propres écrans.
+const webDist = process.env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist', import.meta.url));
+if (existsSync(webDist)) {
+  app.use(express.static(webDist));
+  app.get(/^\/(?!api\/|fsq-manifest\.json$).*/, (req, res) => res.sendFile('index.html', { root: webDist }));
+}
 
 export default app;
