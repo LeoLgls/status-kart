@@ -1,97 +1,60 @@
-// Les trois écrans du niveau 1, branchés sur le contrat (MSW en dev). La course en canvas viendra
-// remplacer l'écran « course » ; ici chaque barrière est un choix de couloir.
-import { useEffect, useState } from 'react';
-import { api, type Player, type Run, type Verdict, type RunResult, type ApiError } from './api/client';
+// Les trois écrans du niveau 1. Seul l'écran affiché est local ; les réponses de l'API restent dans le
+// cache de requêtes (src/api/queries.ts). La course en canvas remplacera Quiz.
+import { useRef, useState } from 'react';
+import type { Run } from './api/client';
+import { useAnswer, useFinish } from './api/queries';
+import { ErrorBox } from './screens/ErrorBox';
+import { Resultats, type Miss } from './screens/Resultats';
+import { Titre } from './screens/Titre';
 
-type Screen =
-  | { name: 'titre' }
-  | { name: 'course'; run: Run; index: number; verdict: Verdict | null }
-  | { name: 'fin'; result: RunResult };
+type Screen = { name: 'titre' } | { name: 'course'; run: Run } | { name: 'fin'; run: Run; misses: Miss[] };
 
-const box: React.CSSProperties = { maxWidth: 560, margin: '40px auto', fontFamily: 'system-ui, sans-serif', lineHeight: 1.5 };
-const lane: React.CSSProperties = { flex: 1, padding: '18px 0', fontSize: 22, fontWeight: 700, cursor: 'pointer' };
+// En attendant la course : chaque barrière est un choix de couloir, le verdict vient de answerQuestion.
+function Quiz({ run, onFinish }: { run: Run; onFinish: (misses: Miss[]) => void }) {
+  const [index, setIndex] = useState(0);
+  const answer = useAnswer();
+  const misses = useRef<Miss[]>([]);
+  const q = run.questions[index];
+  const v = answer.data;
+  const last = index + 1 === run.questions.length;
 
-function ErrorBox({ error }: { error: ApiError | null }) {
-  if (!error) return null;
-  return <p role="alert" style={{ background: '#fde2e2', color: '#8a1111', padding: 12, borderRadius: 6 }}>{error.error.message} <small>({error.error.code})</small></p>;
+  function choose(lane: number) {
+    answer.mutate({ runId: run.runId, questionId: q.id, lane }, {
+      onSuccess: (r) => { if (!r.correct) misses.current.push({ code: r.code, situation: q.situation }); },
+    });
+  }
+
+  return (
+    <main className="wrap">
+      <div className="screen">
+        <p className="pill">{run.circuit} · BARRIERE {index + 1}/{run.questions.length}</p>
+        <ul className="bars"><li>{q.situation}</li></ul>
+        <div className="btns" style={{ gridTemplateColumns: 'repeat(3, 1fr)', width: 'min(100%, 640px)' }}>
+          {q.lanes.map((code, i) => (
+            <button key={i} className={v && i !== v.correctLane ? 'alt' : ''} onClick={() => choose(i)} disabled={!!v || answer.isPending}>{code}</button>
+          ))}
+        </div>
+        {v && <ul className="bars"><li><b className={v.correct ? 'g' : 'r'}>{v.correct ? 'BOOST !' : 'CARAPACE !'}</b> {v.code} {v.name} : {v.explanation}</li></ul>}
+        <ErrorBox error={answer.error} />
+        {v && <button onClick={() => (last ? onFinish(misses.current) : (answer.reset(), setIndex(index + 1)))}>{last ? 'ARRIVEE' : 'BARRIERE SUIVANTE'}</button>}
+      </div>
+    </main>
+  );
 }
 
 export default function App() {
-  const [player, setPlayer] = useState<Player | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: 'titre' });
-  const [error, setError] = useState<ApiError | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    api.GET('/api/session').then(({ data, error }) => (data ? setPlayer(data) : setError(error ?? null)));
-  }, []);
-
-  async function start() {
-    setBusy(true); setError(null);
-    const { data, error } = await api.POST('/api/runs', { body: { level: 1 } });
-    setBusy(false);
-    if (data) setScreen({ name: 'course', run: data, index: 0, verdict: null });
-    else setError(error ?? null);
-  }
-
-  async function answer(laneIndex: number) {
-    if (screen.name !== 'course' || screen.verdict) return;
-    const q = screen.run.questions[screen.index];
-    const { data, error } = await api.POST('/api/runs/{runId}/answers', {
-      params: { path: { runId: screen.run.runId } }, body: { questionId: q.id, lane: laneIndex },
-    });
-    if (data) setScreen({ ...screen, verdict: data });
-    else setError(error ?? null);
-  }
-
-  async function next() {
-    if (screen.name !== 'course') return;
-    setError(null);
-    if (screen.index + 1 < screen.run.questions.length) return setScreen({ ...screen, index: screen.index + 1, verdict: null });
-    setBusy(true);
-    const { data, error } = await api.POST('/api/runs/{runId}/finish', { params: { path: { runId: screen.run.runId } } });
-    setBusy(false);
-    if (data) setScreen({ name: 'fin', result: data });
-    else setError(error ?? null);
-  }
-
-  if (screen.name === 'titre') {
-    return (
-      <main style={box}>
-        <h1>Status Kart</h1>
-        {player && <p>Pilote : <b>{player.pseudo}</b> (niveau {player.level})</p>}
-        <ErrorBox error={error} />
-        {player && <button onClick={start} disabled={busy}>Jouer le niveau 1</button>}
-      </main>
-    );
-  }
+  const finish = useFinish();
 
   if (screen.name === 'course') {
-    const q = screen.run.questions[screen.index];
-    const v = screen.verdict;
+    const { run } = screen;
+    return <Quiz run={run} onFinish={(misses) => { finish.mutate(run.runId); setScreen({ name: 'fin', run, misses }); }} />;
+  }
+  if (screen.name === 'fin') {
     return (
-      <main style={box}>
-        <p>{screen.run.circuit} · question {screen.index + 1}/{screen.run.questions.length}</p>
-        <h2>{q.situation}</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {q.lanes.map((code, i) => (
-            <button key={i} style={{ ...lane, background: v ? (i === v.correctLane ? '#3ddc84' : '#ddd') : '#ffd23f' }} onClick={() => answer(i)} disabled={!!v}>{code}</button>
-          ))}
-        </div>
-        {v && <p><b>{v.correct ? 'Boost !' : 'Carapace !'}</b> {v.code} {v.name} : {v.explanation}</p>}
-        <ErrorBox error={error} />
-        {(v || error) && <button onClick={next} disabled={busy}>{screen.index + 1 < screen.run.questions.length ? 'Barrière suivante' : 'Arrivée'}</button>}
-      </main>
+      <Resultats finish={finish} runId={screen.run.runId} circuit={screen.run.circuit} misses={screen.misses}
+        onReplay={() => { finish.reset(); setScreen({ name: 'titre' }); }} />
     );
   }
-
-  const r = screen.result;
-  return (
-    <main style={box}>
-      <h1>Niveau {r.level} terminé</h1>
-      <p>Temps {(r.timeMs / 1000).toFixed(1)} s · bons couloirs {r.correctCount}/{r.total}</p>
-      <p>Score <b>{r.score}</b> / 10 000 · +{r.xpGained} XP {r.sentToHub ? '(envoyé au hub)' : ''}</p>
-      <button onClick={() => setScreen({ name: 'titre' })}>Rejouer</button>
-    </main>
-  );
+  return <Titre onStart={(run) => setScreen({ name: 'course', run })} />;
 }
